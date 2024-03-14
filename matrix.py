@@ -8,7 +8,11 @@ class Matrix(object):
         self.elements = elements
         self.rows = len(elements)
         self.cols = len(elements[0])
-    
+
+    def printEle(self):
+        for row in self.elements:
+            print(row)
+
     def __mul__(self, other):
         if isinstance(other, Matrix):
             self.multMatrix(other)
@@ -51,30 +55,3 @@ class Matrix(object):
             self.elements[0][0] * other.elements[0][1] - self.elements[0][1] * other.elements[0][0]
         ]
         return Matrix([result])
-    
-def PerspMatrix(fov, ar, near, far):
-    # fov - Field of View
-    # ar - aspect ratio
-    f = 1 / math.tan(math.radians(fov / 2))
-    return Matrix([
-        [f / ar, 0, 0, 0],
-        [0, f, 0, 0],
-        [0, 0, (far + near) / (near - far), -1],
-        [0, 0, 2 * far * near / (near - far), 0]
-    ])
-    
-def perspectiveMatrix(fov, width, height, near, far):
-    """Create a perspective projection matrix."""
-    f = 1.0 / np.tan(np.radians(fov) / 2.0)
-    z_range = near - far
-    
-    aspRat = width / height
-
-    matrix = np.array([
-        [f / aspRat, 0, 0, 0],
-        [0, f, 0, 0],
-        [0, 0, (far + near) / z_range, 2 * far * near / z_range],
-        [0, 0, -1, 0]
-    ])
-
-    return matrix

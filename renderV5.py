@@ -1,6 +1,8 @@
 from image import Image, Color
 from model import Model
 from shape import Point, Line, Triangle
+from matrix import Matrix 
+from matrixChild import TranslateMatrix, RotateMatrix, ScaleMatrix
 from vector import Vector
 import numpy as np
 import math
@@ -80,11 +82,7 @@ def getOrthographicProjection(x, y, z):
 
 def getPerspectiveProjection1(x, y, z): # TODO KEEP WORKING THIS
     """ PERSPECTIVE PROJECTION VARIANT """
-    # Convert vertex from world space to screen space
-	# by dropping the z-coordinate (Orthographic projection)
-    # Instead of dropping z-coord, we use it as homogeneous factor to create perspective
-    focalLen = 0.2 # Adjustable by taste
-    w = 1.0 / (z / focalLen + 1)
+
     xp = x * w
     yp = y * w
     zp = z * w
@@ -94,6 +92,16 @@ def getPerspectiveProjection1(x, y, z): # TODO KEEP WORKING THIS
     screenY = int((yp / w + 1) * image.height / 2)
     
     return screenX, screenY
+
+def getPerspectiveProjection(x, y, z): # TODO KEEP WORKING THIS
+    """ PERSPECTIVE PROJECTION VARIANT """
+    print("->", x, y, z)
+    # Calculate screen coordinates
+    screenX = int((x / -z -1) * image.width / 2)
+    screenY = int((y / -z -1) * image.height / 2)
+    print(screenX, screenY)
+    return screenX, screenY
+
 
 def getPerspectiveProjectionTemplate(x, y, z):
     # Represent the 3D point in homogeneous coordinates
@@ -107,37 +115,6 @@ def getPerspectiveProjectionTemplate(x, y, z):
     # Calculate screen coordinates
     screenX = 0
     screenY = 0
-
-    return screenX, screenY
-
-def getPerspectiveProjection(x, y, z):
-    """Perspective transformation"""
-    
-    near, far = 1, 500
-    left, right, bottom, top = -256, 256, -256, 256
-    
-    # Represent the 3D point in homogeneous coordinates
-    point = np.array([x, y, z, 1.0])
-
-    # Define the perspective matrix
-    focal_len = 5  # Adjustable by taste
-    perspective_matrix = np.array([
-        [fractionate(2*near, right-left), 0, fractionate(right+left, right-left), 0],
-        [0, fractionate(2*near, top-bottom), fractionate(top+bottom, top-bottom), 0],
-        [0, 0, fractionate((-1 * (far + near)), far-near), fractionate((-2 * far * near), far-near)],
-        [0, 0, 1, 0]
-    ])
-
-
-    # Multiply the point by the perspective matrix
-    transformed_point = np.dot(perspective_matrix, point)
-
-    # Extract the transformed coordinates and homogeneous coordinate
-    xp, yp, zp, wp = transformed_point
-
-    # Calculate screen coordinates
-    screenX = int((xp + 1) * width / 2.0)
-    screenY = int((yp + 1) * height / 2.0)
 
     return screenX, screenY
 
@@ -200,7 +177,7 @@ while running: # Main engine loop
             if intensity < 0:
                 cull = True # Back face culling is disabled in this version
             
-            screenX, screenY = getOrthographicProjection(p.x, p.y, p.z)
+            screenX, screenY = getPerspectiveProjection(p.x, p.y, p.z)
             transformedPoints.append(Point(screenX, screenY, p.z, Color(intensity*255, intensity*255, intensity*255, 255)))
         
         if not cull:
