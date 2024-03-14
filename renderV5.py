@@ -200,7 +200,7 @@ while running: # Main engine loop
             if intensity < 0:
                 cull = True # Back face culling is disabled in this version
             
-            screenX, screenY = getPerspectiveProjection(p.x, p.y, p.z)
+            screenX, screenY = getOrthographicProjection(p.x, p.y, p.z)
             transformedPoints.append(Point(screenX, screenY, p.z, Color(intensity*255, intensity*255, intensity*255, 255)))
         
         if not cull:
