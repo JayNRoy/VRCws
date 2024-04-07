@@ -82,7 +82,7 @@ class Image(object):
 
 	def saveAsPNG(self, filename = "render.png"):
 		""" Pack a new buffer formatted as a PNG, then save it to a file."""
-		print("Saving PNG...")
+		#print("Saving PNG...")
 		filename = "images/" + filename
 		def makeChunk(chunkType, chunkData):
 			""" Pack data into standard PNG chunks. Chunks consist of:

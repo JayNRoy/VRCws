@@ -7,6 +7,12 @@ A software renderer written from scratch in Python 3, using only modules from th
 python3 render.py
 ```
 ## Modules
+### Matrix.py
+Contains a matrix class that converts two-dimensional arrays into matrices, faciliating the usage of matrix operations, and multiplications.
+
+### MatrixChild.py
+Inherits the 'Matrix' class from *Matrix.py* and creates transformation matrix objects - translation, rotation and scale - that can take an arguement or scalar as input to auguement the effect of the transformation matrix.
+
 ### Image.py
 Contains an image class capable of generating an image and exporting it to a PNG. Images are implemented as a buffer of 32-bit RGBA pixel color data stored in a byte array. This modules uses `zlib` and `struct` for compressing and packing PNG data. 
 
