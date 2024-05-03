@@ -17,7 +17,7 @@ class Vector(object):
 
     @x.setter
     def x(self, val):
-        self.components = (val, self.components[1], self.components[2])
+        self.components = (val, self.components[1], self.components[2], self.components[3])
 
     @property
     def y(self):
@@ -26,7 +26,7 @@ class Vector(object):
 
     @y.setter
     def y(self, val):
-        self.components = (self.components[0], val, self.components[2])
+        self.components = (self.components[0], val, self.components[2], self.components[3])
 
     @property
     def z(self):
@@ -35,7 +35,16 @@ class Vector(object):
 
     @z.setter
     def z(self, val):
-        self.components = (self.components[0], self.components[1], val)
+        self.components = (self.components[0], self.components[1], val, self.components[3])
+
+    @property
+    def w(self):
+        assert(len(self) >= 4)
+        return self.components[3]
+    
+    @w.setter
+    def w(self, val=1):
+        self.components = (self.components[0], self.components[1], self.components[3], val)
 
     def norm(self):
         """ Return the norm (magnitude) of this vector."""

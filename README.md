@@ -3,6 +3,7 @@ A software renderer written from scratch in Python 3, using only modules from th
 ![cow](https://raw.githubusercontent.com/ecann/RenderPy/master/images/depthCow.png)
 
 ## To Run
+With python 3.11.x installed, within the command line terminal:
 ```python 
 python3 render.py
 ```

@@ -80,6 +80,11 @@ class Image(object):
 		# Set the new pixel colors in the buffer
 		self.buffer[index + 1 : index + 5] = outColor.getTuple()
 
+	def clear(self, color):
+		"""Fill the entire image with the specified color."""
+		one_row = color.getByteString() * self.width
+		self.buffer = one_row * self.height
+
 	def saveAsPNG(self, filename = "render.png"):
 		""" Pack a new buffer formatted as a PNG, then save it to a file."""
 		#print("Saving PNG...")

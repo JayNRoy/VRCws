@@ -284,101 +284,14 @@ def applyRotationToVertex(vertex, rotation_matrix):
     # Update the vertex coordinates
     return Vector(v_rotated[0], v_rotated[1], v_rotated[2])
 
-print(""" --- PROBLEM 5: PHYSICS & COLLISIONS --- """)
-
-class GameObject:
-    def __init__(self, position, orientation, model, screenWidth, screenHeight, iniQ=np.array([1, 0, 0, 0]), mass=1.0, radius=1.0, velocity=None, modelHalf=None, modelQuar=None):
-        self.model = model
-        self.position = np.array(position)
-        self.velocity = np.array(velocity) if velocity is not None else np.zeros(3)
-        self.orientation = orientation
-        self.mass = mass
-        self.radius = radius
-        self.currentQ = iniQ
-        self.screenWidth = screenWidth
-        self.screenHeight = screenHeight
-        self.modelDetails = {
-            'default': model,
-            # Additional LOD models added here
-        }
-        if modelHalf != None:
-            self.modelDetails['half'] = modelHalf
-        if modelQuar != None:
-            self.modelDetails['quarter'] = modelQuar
-    
-    def updatePhysics(self, deltaTime, gravity=np.array([0, -9.81, 0])):
-        # Apply gravity
-        acceleration = gravity
-
-        # Air resistance parameters (could be attributes instead)
-        dragCoeff = 0.5
-        rho = 1.3  # Air density in kg/m^3
-        A = 0.2  # Cross-sectional area in m^2
-
-        # Calculate drag force
-        vMag = np.linalg.norm(self.velocity)
-        if vMag > 0:
-            dragForce = -0.5 * rho * dragCoeff * A * vMag * self.velocity
-            acceleration += dragForce / self.mass
-
-        # Update velocity and position based on acceleration
-        self.velocity += acceleration * deltaTime
-        self.position += self.velocity * deltaTime
-
-    def checkCollisions(self, other):
-        distance = np.linalg.norm(self.position - other.position)
-        return distance < (self.radius + other.radius)
-    
-    def resolveCollision(self, other):
-        # Simple elastic collision resolution
-        normal = (self.position - other.position) / np.linalg.norm(self.position - other.position)
-        relative_velocity = self.velocity - other.velocity
-        deltaV = 2 * np.dot(relative_velocity, normal) * normal / (self.mass + other.mass)
-        self.velocity -= deltaV * other.mass
-        other.velocity += deltaV * self.mass
-
-    def getPerspectiveProjection(self, vertex, fov=90, aspect_ratio=1.0, near=0.1, far=1000.0):
-        # Calculate the field of view in radians
-        f = 1.0 / math.tan(math.radians(fov) / 2.0)
-        # Update vertex position based on the object's position
-        x, y, z = vertex + self.position
-        z = z - 1.9  # Adjust for the camera's view depth
-
-        # Create the perspective projection matrix
-        matrix = np.array([
-            [f / aspect_ratio, 0, 0, 0],
-            [0, f, 0, 0],
-            [0, 0, (far + near) / (near - far), (2 * far * near) / (near - far)],
-            [0, 0, -1, 0]
-        ])
-        point = np.array([x, y, z, 1])
-        projected_point = np.dot(matrix, point)
-
-        # Convert the point from homogeneous coordinates to screen coordinates
-        screenX = int((projected_point[0] / projected_point[3] + 1.0) * self.screenWidth / 2.0)
-        screenY = int((projected_point[1] / projected_point[3] + 1.0) * self.screenHeight / 2.0)
-        return screenX, screenY
-    
-    def applyTransformation(self, gyro, accl, magn, dTime, alpha1=0.5, alpha2=0.5, scalar=1, displacer=[0, 0, 0]):
-        # Apply scaling, rotation, and translation transformations
-        scaleMatrix = ScaleMatrix(scalar)
-        translateMatrix = TranslateMatrix(displacer)
-
-        # Get the orientation data into the object
-        gyroQuar = updateOrientationDeadReckoning(gyro, deltaTime)
-        accelQuar = updateOrientationWithAccelerometer(accl)
-
-        # Compute final orientation using the complementary filter
-        self.currentQ = complementaryFilter(gyroQuar, accelQuar, alpha1)
-
-        # Convert currentQ to a rotation matrix for rendering
-        rotateMatrix = quaternionToRotationMatrix(self.currentQ)
-
-        # Combine transformations
-        transformationMatrix = np.dot(np.dot(translateMatrix, rotateMatrix), scaleMatrix)
-        return transformationMatrix
-
 print(""" --- PROBLEM 1: RENDERING --- """)
+
+def Translate(listOfTranslates, point):
+    # listOfTranslates = [3, 4, 5]
+    # Means that x-coords will be translated by 3, y-coords will be translated by 4, z-coords will be translated by 5
+    translation = TranslateMatrix(listOfTranslates)
+    print(translation)
+    return translation
 
 width = 512
 height = 512
@@ -553,7 +466,6 @@ rate = 0
 timing = 0
 backgroundColor = Color(255, 255, 255, 255)  # Black as the background color
 running = True
-'''MAIN ENGINE LOOP'''
 while running: # Main engine loop
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -561,7 +473,7 @@ while running: # Main engine loop
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_q:
                 running = False
-
+    
     # Recreate the image each frame to clear it
     image = Image(width, height, backgroundColor)
     zBuffer = [-float('inf')] * width * height  # Reset the depth buffer
@@ -635,7 +547,6 @@ while running: # Main engine loop
     
     # This engine will work by writing to a single image (that is being overwritten), 
     # then showing it in the buffer.
-    
     # Constantly overwriting images to saves space. To track the status of the engine,
     # seperate images will be written alongside the buffer image to see how the engine develops.
     

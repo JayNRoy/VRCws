@@ -9,6 +9,14 @@ import math
 import time
 import pygame
 
+def debugOutput(thing, fileName="output"):
+    # A simple function to debug the output the program
+    # by using a separate file
+    with open(f"{fileName}.txt", "a") as file:
+        file.write(thing)
+        file.write("\n")
+    return True
+
 def deg2rad(deg): return float((math.pi / 180)) * float(deg)
 
 print(""" --- PROBLEM 2: TRACKING:HANDLING POSE DATA --- """)
@@ -44,7 +52,7 @@ def Euler2Quaternion(roll, pitch, yaw):
     return q
 
 # Function to calculate Euler angles from a quaternion
-def Quaternion2Euler(q):
+def quaternion2Euler(q):
     roll = math.atan2(2 * (q[0] * q[1] + q[2] * q[3]), 1 - 2 * (q[1]**2 + q[2]**2))
     pitch = math.asin(2 * (q[0] * q[2] - q[3] * q[1]))
     yaw = math.atan2(2 * (q[0] * q[3] + q[1] * q[2]), 1 - 2 * (q[2]**2 + q[3]**2))
@@ -52,17 +60,22 @@ def Quaternion2Euler(q):
     return roll, pitch, yaw
 
 # Function to calculate the conjugate (inverse rotation) of a quaternion
-def QuaternionConjugate(q):
+def quaternionConjugate(q):
     return np.array([q[0], -q[1], -q[2], -q[3]])
 
 # Function to calculate the product of two quaternions
-def QuaternionProduct(q1, q2):
+def quaternionProduct(q1, q2):
+    # Unpack the first quaternion
     w1, x1, y1, z1 = q1
+    # Unpack the second quaternion
     w2, x2, y2, z2 = q2
+    
+    # Compute the product components
     w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
     x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
-    y = w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2
+    y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
     z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
+    
     return np.array([w, x, y, z])
 
 print("Reading CSV file IMUData.csv...")
@@ -131,14 +144,12 @@ for chunkStart in range(0, len(roll), chunkz):
 #print(f"Quaternions calculated: \n{quaternion}")
 
 # Calculate conjugate of quaternion
-conjugate = QuaternionConjugate(quaternion)
-
-#print(f"Conjugates calculated: \n{conjugate}")
+conjugate = quaternionConjugate(quaternion)
 
 # Example quaternion representations
 q1 = [0.707, 0, 0.707, 0]  # Quaternion with scalar part 0.707 and imaginary parts 0, 0.707, 0
 q2 = [0.5, 0.5, -0.5, 0.5]  # Another example quaternion
-qProduct = QuaternionProduct(q1, q2)
+qProduct = quaternionProduct(q1, q2)
 
 #print(f"Quaternion product of {q1} and {q2}:\n", qProduct)
 
@@ -159,86 +170,164 @@ def calculateDeltaTime():
     timeStamp = currentTime
     return deltaTime
 
-def getGyroData(timing, deltaTime):
-    # Interpolating gyro data, using the current timing, and estimating the time jump to the current frame
-    # quarternion as 6958 records --> 0:6957
+def quaternionFromAxisAngle(axis, theta):
+    # Normalize the axis vector
+    axis = axis / np.linalg.norm(axis)
     
-    # Find the index of the previous and next timestamp in the dataset
-    prevIndex = None
-    nextIndex = None
-    for i, t in enumerate(imu["time"]):
-        if t <= timing:
-            prevIndex = i
-        if t > timing:
-            nextIndex = i
-            break
+    # Compute the scalar part and the vector part of the quaternion
+    scalar = np.cos(theta / 2.0)
+    vector = axis * np.sin(theta / 2.0)
+    
+    # Create the quaternion (scalar, vector)
+    return np.concatenate(([scalar], vector))
 
-    # If the current timing is beyond the dataset, return the last available gyro data
-    if nextIndex is None:
-        # Returns last row of gyro data - change this if this not show the headset by the end
-        return imu["gyroX"][-1], imu["gyroY"][-1], imu["gyroZ"][-1]
+def getMagnetometerOrientation(magData, reference):
+    # Assuming magData already contains the correctly formatted current magnetometer reading
+    currentMagVector = np.array([magData['magnX'], magData['magnY'], magData['magnZ']])
+    if np.linalg.norm(currentMagVector) == 0:
+        return np.array([1, 0, 0, 0])  # Return identity quaternion if vector is zero
 
-    # Interpolate gyro data based on timestamps
-    prevTime = imu["time"][prevIndex]
-    nextTime = imu["time"][nextIndex]
-    prevGyroX = imu["gyroX"][prevIndex]
-    prevGyroY = imu["gyroY"][prevIndex]
-    prevGyroZ = imu["gyroZ"][prevIndex]
-    nextGyroX = imu["gyroX"][nextIndex]
-    nextGyroY = imu["gyroY"][nextIndex]
-    nextGyroZ = imu["gyroZ"][nextIndex]
+    # Normalize vectors if not zero to prevent runtime warnings or errors
+    if np.linalg.norm(currentMagVector) > 0:
+        currentMagVector = currentMagVector / np.linalg.norm(currentMagVector)
+    if np.linalg.norm(referenceVector) > 0:
+        referenceVector = reference / np.linalg.norm(referenceVector)
+
+    # Ensure that both vectors are properly normalized and formatted
+    print("Reference Vector:", referenceVector)
+    print("Current Magnetometer Vector:", currentMagVector)
     
-    # Interpolate gyro data linearly
-    interpolatedGyroX = prevGyroX + (nextGyroX - prevGyroX) * ((timing - prevTime) / (nextTime - prevTime))
-    interpolatedGyroY = prevGyroY + (nextGyroY - prevGyroY) * ((timing - prevTime) / (nextTime - prevTime))
-    interpolatedGyroZ = prevGyroZ + (nextGyroZ - prevGyroZ) * ((timing - prevTime) / (nextTime - prevTime))
-    
-    return interpolatedGyroX, interpolatedGyroY, interpolatedGyroZ
-    
-def deadReck(gyroData, deltaTime):
+    axis = np.cross(referenceVector, currentMagVector)
+    angle = np.arccos(np.clip(np.dot(referenceVector, currentMagVector), -1.0, 1.0))
+
+    return quaternionFromAxisAngle(axis, angle)
+
+def updateOrientationDeadReckoning(gyroData, deltaTime):
     global currentQ
-
-    # Retrieve gyro data
-    gyroX, gyroY, gyroZ = gyroData
-
-    # Calculate the change in orientation based on gyro data and time interval
-    deltaRoll = gyroX * deltaTime
-    deltaPitch = gyroY * deltaTime
-    deltaYaw = gyroZ * deltaTime
-
-    deltaQ = Euler2Quaternion(deltaRoll, deltaPitch, deltaYaw)
-
-    # Update the quaternion representing the current orientation
-    currentQ = QuaternionProduct(currentQ, deltaQ)
-
+    # Convert gyro data (angular velocity in rad/s) to delta quaternion
+    angularV = np.array([gyroData['gyroX'], gyroData['gyroY'], gyroData['gyroZ']])
+    theta = np.linalg.norm(angularV) * deltaTime
+    if theta > 0:
+        axis = angularV / np.linalg.norm(angularV)
+        deltaQ = quaternionFromAxisAngle(axis, theta)
+        currentQ = quaternionProduct(currentQ, deltaQ)
     return currentQ
 
+def updateOrientationWithAccelerometer(accData):
+    global currentQ
+    gravityVector = np.array([accData['acclX'], accData['acclY'], accData['acclZ']])
+    gravityVectorNormal = gravityVector / np.linalg.norm(gravityVector)
+    up = [0, 0, 1]  # Assuming the 'up' direction in the world frame
+    
+    # Calculate the necessary rotation to align the gravity vector with 'up'
+    correction_quaternion = quaternionFromVectors(gravityVectorNormal, up)
+    currentQ = quaternionProduct(correction_quaternion, currentQ)
+    return currentQ
+
+def quaternionFromVectors(v0, v1):
+    # Normalize input vectors
+    v0 = v0 / np.linalg.norm(v0)
+    v1 = v1 / np.linalg.norm(v1)
+
+    # Compute the cross product and dot product
+    cross = np.cross(v0, v1)
+    dot = np.dot(v0, v1)
+
+    # Handle the special case of vectors being exactly opposite
+    if dot < -0.9999:
+        # Arbitrary vector orthogonal to v0
+        up = np.array([1.0, 0.0, 0.0])
+        if np.abs(v0[0]) > 0.99:
+            up = np.array([0.0, 1.0, 0.0])
+        orthogonal = np.cross(v0, up)
+        orthogonal = orthogonal / np.linalg.norm(orthogonal)
+        return np.array([0.0, orthogonal[0], orthogonal[1], orthogonal[2]])
+
+    # Compute the quaternion
+    s = np.sqrt((1.0 + dot) * 2.0)
+    inv_s = 1.0 / s
+
+    return np.array([s * 0.5, cross[0] * inv_s, cross[1] * inv_s, cross[2] * inv_s])
+
+def complementaryFilter(gyroOrient, accelOrient, magOrient, alphaGyroAccel, alphaMag):
+    # First blend gyroscope and accelerometer
+    gyroAccelBlend = slerp(gyroOrient, accelOrient, alphaGyroAccel)
+    
+    # Then blend the result with the magnetometer orientation
+    finalOrientation = slerp(gyroAccelBlend, magOrient, alphaMag)
+
+    return finalOrientation
+    
+def slerp(q1, q2, t):
+    # Compute the cosine of the angle between the two vectors.
+    dot = np.dot(q1, q2)
+
+    # If the dot product is negative, the quaternions have opposite handedness and slerp won't take
+    # the shorter path. So invert one quaternion.
+    if dot < 0.0:
+        q2 = -q2
+        dot = -dot
+
+    # Clamp the dot product to be in the range of Acos()
+    # This may be necessary due to floating point errors that might make dot out of range [-1, 1].
+    dot = np.clip(dot, -1.0, 1.0)
+
+    # Calculate the angles between the quaternions and the interpolation factor
+    theta0 = np.arccos(dot) # angle between input vectors
+    theta = theta0 * t # angle between gyroOrient and the result
+
+    q = q2 - q1 * dot
+    q = q / np.linalg.norm(q)  # Normalize vector
+    
+    # Compute the final interpolated quaternion
+    return q1 * np.cos(theta) + q * np.sin(theta)
+
+def quaternionToRotationMatrix(q):
+    """
+    Convert a quaternion into a 3x3 rotation matrix.
+    """
+    w, x, y, z = q
+    # Compute squares of components
+    x2, y2, z2 = x * x, y * y, z * z
+    wx, wy, wz = w * x, w * y, w * z
+    xy, xz, yz = x * y, x * z, y * z
+
+    # Construct the rotation matrix
+    rotation_matrix = np.array([
+        [1.0 - 2.0 * (y2 + z2), 2.0 * (xy - wz), 2.0 * (xz + wy)],
+        [2.0 * (xy + wz), 1.0 - 2.0 * (x2 + z2), 2.0 * (yz - wx)],
+        [2.0 * (xz - wy), 2.0 * (yz + wx), 1.0 - 2.0 * (x2 + y2)]
+    ])
+    return rotation_matrix
+
+def applyRotationToVertex(vertex, rotation_matrix):
+    # Assuming vertex is a Vector object or similar with x, y, z attributes
+    v = np.array([vertex.x, vertex.y, vertex.z])
+    # Apply the rotation matrix
+    v_rotated = np.dot(rotation_matrix, v)
+    # Update the vertex coordinates
+    return Vector(v_rotated[0], v_rotated[1], v_rotated[2])
+
 print(""" --- PROBLEM 1: RENDERING --- """)
+
+def Translate(listOfTranslates, point):
+    # listOfTranslates = [3, 4, 5]
+    # Means that x-coords will be translated by 3, y-coords will be translated by 4, z-coords will be translated by 5
+    translation = TranslateMatrix(listOfTranslates)
+    print(translation)
+    return translation
 
 width = 512
 height = 512
 
-### Needed?
-fov = 100
-nearDis, farDis = 5, 750
-###
-
 image = Image(width, height, Color(255, 255, 255, 255))
 pygame.init()
-
-# Define camera parameters
-fov = 60  # Field of view
-near = 0.1  # Near clipping distance
-far = 100.0  # Far clipping distance
 
 screen = pygame.display.set_mode((width, height))
 pygame.display.set_caption('Game Engine Render: 0')
 # Init z-buffer
-zBuffer = [-float('inf')] * width * height
 
-# Load the model # TODO ENSURE Directories align
-model = Model('data/headset.obj')
-model.normalizeGeometry()
+zBuffer = [-float('inf')] * width * height
 
 def fractionate(top, bottom):
     return float(top / bottom)
@@ -251,12 +340,13 @@ def getOrthographicProjection(x, y, z):
     
     return screenX, screenY
 
-def getPerspectiveProjection(x, y, z): # TODO KEEP WORKING THIS
+def getPerspectiveProjectionOLD(x, y, z):
     # Appears to create a fish-eye effect instead of a perspective shift
     """ PERSPECTIVE PROJECTION VARIANT """
-    zp = z
-    xp = x
-    yp = y
+    camScal = -2.2
+    zp = z - 1.9
+    xp = x * camScal
+    yp = y * camScal
 
     # Calculate screen coordinates
     screenX = int(((xp / zp) + 1.0) * image.width / 2)
@@ -264,33 +354,26 @@ def getPerspectiveProjection(x, y, z): # TODO KEEP WORKING THIS
     
     return screenX, screenY
 
-def getPerspectiveProjectionCOMPLEX(x, y, z):
-    # Represent the 3D point in homogeneous coordinates
-    point = Matrix([[x], [y], [z], [1]]) # w - homogeneous coordinate
+def getPerspectiveProjection(x, y, z, fov=90, ar=float(width) / height, near=0.1, far=1000.0):
+    # Convert field of view from degrees to radians
+    f = 1.0 / math.tan(math.radians(fov) / 2.0)
+    z = z - 1.9
 
-    viewAngle = 30
-
-    # Define the perspective matrix
-    perspMatrix = Matrix(
-         [
-              [1, 0, 0, 0],
-              [0, 1, 0, 0],
-              [0, 0, 1, 0],
-              [0, 0, 1, 0]
-        ]
-    )
-    # Multiply the point by the perspective matrix
-    result = perspMatrix.multMatrix(point)
-
-    # Extract the transformed coordinates and homogeneous coordinate
-    zp = result.elements[2][0] * math.tan(viewAngle / 2)
-    xp = result.elements[0][0]
-    yp = result.elements[1][0]
-
-    # Calculate screen coordinates
-    screenX = int(((xp / zp) + 1.0) * image.width / 2)
-    screenY = int(((yp / zp) + 1.0) * image.height / 2)
-
+    # Setting up the perspective projection matrix
+    matrix = np.array([
+        [f / ar, 0, 0, 0],
+        [0, f, 0, 0],
+        [0, 0, (far + near) / (near - far), (2 * far * near) / (near - far)],
+        [0, 0, -1, 0]
+    ])
+    # Homogeneous coordinates of the point
+    point = np.array([x, y, z, 1])
+    # Projected point
+    projected_point = np.dot(matrix, point)
+    # Convert from homogeneous coordinates to screen coordinates
+    screenX = int((projected_point[0] / projected_point[3] + 1.0) * width / 2.0)
+    screenY = int((projected_point[1] / projected_point[3] + 1.0) * height / 2.0)
+    
     return screenX, screenY
 
 def getVertexNormal(vertIndex, faceNormalsByVertex):
@@ -300,6 +383,42 @@ def getVertexNormal(vertIndex, faceNormalsByVertex):
 		normal = normal + adjNormal
 
 	return normal / len(faceNormalsByVertex[vertIndex])
+
+def calculateObjectCenter(vertices):
+    """
+    Calculate the center of the object based on a set of vertices.
+    Returns:
+        Vector: The center of the object as a 3D vector.
+    """
+    # Calculate the average position of all vertices
+    center = Vector(0, 0, 0)
+    num_vertices = len(vertices)
+    
+    for vertex in vertices:
+        center += vertex
+    
+    center /= num_vertices
+    
+    return center
+
+def calculateDistance(vector1, vector2):
+    """
+    Calculate the Euclidean distance between two 3D points.
+    Returns:
+        float: The Euclidean distance between the two points.
+    """
+    distance = vector1.norm() - vector2.norm()
+    return distance
+
+# Load the model # TODO ENSURE Directories align
+model = Model('data/headset.obj')
+model.normalizeGeometry()
+# Load the half-sized model
+modelHalf = Model('data/headsetHalf.obj')
+modelHalf.normalizeGeometry()
+# Load the quarter-sized model
+modelQuar = Model('data/headsetQuarter.obj')
+modelQuar.normalizeGeometry()
 
 # Calculate face normals
 faceNormals = {}
@@ -313,14 +432,67 @@ for face in model.faces:
 
 		faceNormals[i].append(faceNormal)
 
+faceHalfNormals = {}
+for face in modelHalf.faces:
+	p0, p1, p2 = [modelHalf.vertices[i] for i in face]
+	faceNormal = (p2-p0).cross(p1-p0).normalize()
+
+	for i in face:
+		if not i in faceHalfNormals:
+			faceHalfNormals[i] = []
+
+		faceHalfNormals[i].append(faceNormal)
+
+faceQuarNormals = {}
+for face in modelQuar.faces:
+	p0, p1, p2 = [modelQuar.vertices[i] for i in face]
+	faceNormal = (p2-p0).cross(p1-p0).normalize()
+
+	for i in face:
+		if not i in faceQuarNormals:
+			faceQuarNormals[i] = []
+
+		faceQuarNormals[i].append(faceNormal)
+
 # Calculate vertex normals
 vertexNormals = []
 for vertIndex in range(len(model.vertices)):
     vertNorm = getVertexNormal(vertIndex, faceNormals)
     vertexNormals.append(vertNorm)
 
+vertexHalfNormals = []
+for vertIndex in range(len(modelHalf.vertices)):
+    vertNorm = getVertexNormal(vertIndex, faceHalfNormals)
+    vertexHalfNormals.append(vertNorm)
+
+vertexQuarNormals = []
+for vertIndex in range(len(modelQuar.vertices)):
+    vertNorm = getVertexNormal(vertIndex, faceQuarNormals)
+    vertexQuarNormals.append(vertNorm)
+
+ModelCollection = {
+    'Normal': {
+       'model': model,
+       'faceNormals':faceNormals,
+       'vertexNormals':vertexNormals
+    },
+    'Half':{
+       'model': modelHalf,
+       'faceNormals':faceHalfNormals,
+       'vertexNormals':vertexHalfNormals
+    },
+    'Quarter':{
+       'model': modelQuar,
+       'faceNormals':faceQuarNormals,
+       'vertexNormals':vertexQuarNormals
+    }
+}
+
+iniMagnetometer = np.array([imu['magnX'][0], imu['magnY'][0], imu['magnZ'][0]])
+
 rate = 0
 timing = 0
+backgroundColor = Color(255, 255, 255, 255)  # Black as the background color
 running = True
 while running: # Main engine loop
     for event in pygame.event.get():
@@ -330,47 +502,101 @@ while running: # Main engine loop
             if event.key == pygame.K_q:
                 running = False
     
+    # Recreate the image each frame to clear it
+    image = Image(width, height, backgroundColor)
+    zBuffer = [-float('inf')] * width * height  # Reset the depth buffer
+
     pygame.display.set_caption(f'Game Engine Render: {rate}')
 
     # Calculate the time interval between measurements
     deltaTime = calculateDeltaTime()
 
-    # Estimate and retrieve gyro data at this timestamp
-    gyroData = getGyroData(timing, deltaTime)
+    # Update orientation with gyro data (simulating getting the latest data)
+    gyroData = {'gyroX': imu['gyroX'][rate % len(imu['gyroX'])],
+                'gyroY': imu['gyroY'][rate % len(imu['gyroY'])],
+                'gyroZ': imu['gyroZ'][rate % len(imu['gyroZ'])]}
+    gyroOrient = updateOrientationDeadReckoning(gyroData, deltaTime)
 
-    timing += deltaTime
-    #print(deltaTime, timing, gyroData)
+    # Optionally, apply accelerometer data for tilt correction
+    accData = {'acclX': imu['acclX'][rate % len(imu['acclX'])],
+               'acclY': imu['acclY'][rate % len(imu['acclY'])],
+               'acclZ': imu['acclZ'][rate % len(imu['acclZ'])]}
+    accelOrient = updateOrientationWithAccelerometer(accData)
 
-    # Update the orientation estimate based on gyro data using dead reckoning filter
-    currentOrientation = deadReck(gyroData, deltaTime)
+    magData = {'magnX': imu['magnX'][rate % len(imu['magnX'])],
+               'magnY': imu['magnY'][rate % len(imu['magnY'])],
+               'magnZ': imu['magnZ'][rate % len(imu['magnZ'])]}
+
+    print("Magnetometer data being passed:", magData)  # Check what is being passed exactly
+
+    # Convert these values to a numpy array and normalize
+    currentMagVector = np.array([magData['magnX'], magData['magnY'], magData['magnZ']])
+    print("Type and shape of currentMagVector:", type(currentMagVector), currentMagVector.shape)
+    print("Type and shape of iniMagnetometer:", type(iniMagnetometer), iniMagnetometer.shape)
+
+    if np.linalg.norm(currentMagVector) != 0:
+        currentMagVector = currentMagVector / np.linalg.norm(currentMagVector)
+    
+    
+
+    #magOrient = getMagnetometerOrientation(currentMagVector, iniMagnetometer)
+
+    # Call to calculate orientation from magnetometer
+    magOrient = getMagnetometerOrientation(magData, iniMagnetometer)
+
+    alpha1, alpha2 = 0.001, 0.1
+
+    # Simulated magnetometer data retrieval
+    magOrient = getMagnetometerOrientation(imu, iniMagnetometer)
+
+    # Compute final orientation using the complementary filter
+    currentQ = complementaryFilter(gyroOrient, accelOrient, magOrient, 0.01, 0.99)
+
+    # Convert currentQ to a rotation matrix for rendering
+    rotateMat = quaternionToRotationMatrix(currentQ)
+
+    AmbientInte = 0.1
+    # Define the light direction
+    lightDir = Vector(0, 0, -1)
     
     # Render the image iterating through faces
     for face in model.faces:
-        p0, p1, p2 = [model.vertices[i] for i in face]
-        n0, n1, n2 = [vertexNormals[i] for i in face]
-        
-        # Define the light direction
-        lightDir = Vector(0, 0, -1)
-        
+        vertices = [model.vertices[i] for i in face]
+        normals = [vertexNormals[i] for i in face]
+
+        # Transform vertices and normals
+        transformedVertices = [applyRotationToVertex(v, rotateMat) for v in vertices]
+        transformedNormals = [applyRotationToVertex(n, rotateMat) for n in normals]
+
         # Set to true if face should be culled
         cull = False
         
         # Transform vertices and calculate lighting intensity per vertex
         transformedPoints = []
-        for p, n in zip([p0, p1, p2], [n0, n1, n2]):
-            intensity = n * lightDir
-            
+        for p, n in zip(transformedVertices, transformedNormals):
+            # Only Diffuse Lighting
+            #intensity = n * lightDir
+            #intensity = max(0, min(1, n * lightDir)) # Specific clamping on colours to prevent byte errors
+
+            # Basic Ambient and Diffuse Lighting combined
+            diffuse = max(np.dot(n, lightDir), 0)
+            intensity = max(0, min(1, AmbientInte + (1 - AmbientInte) * diffuse))  # Combine ambient and diffuse
+
+            n = n.normalize()
+
             # Intensity < 0 means light is shining through the back of the face
             # In this case, don't draw the face at all ("back-face culling")
-            if intensity < 0:
+            
+            if intensity <= 0:
                 cull = True # Back face culling is disabled in this version
 
+            '''PERSPECTIVE TRANSFORM'''
             #screenX, screenY = getOrthographicProjection(p.x, p.y, p.z)
-            scaler = 1.7
-            screenX, screenY = getPerspectiveProjection(p.x * scaler, p.y * scaler, p.z + 2.5)
-            transformedPoints.append(Point(screenX, screenY, p.z, Color(intensity*255, intensity*255, intensity*255, 255)))
+            screenX, screenY = getPerspectiveProjection(p.x, p.y, p.z)
+            colorVal = int(intensity * 255)
+            transformedPoints.append(Point(screenX, screenY, p.z, Color(colorVal, colorVal, colorVal, 255)))
         
-        if not cull:
+        if not cull and len(transformedPoints) == 3:
             Triangle(transformedPoints[0], transformedPoints[1], transformedPoints[2]).draw_faster(image, zBuffer)
     
     # This engine will work by writing to a single image (that is being overwritten), 
@@ -382,7 +608,6 @@ while running: # Main engine loop
         image.saveAsPNG(f"image_frame{rate}.png")
     image.saveAsPNG("imageBuffer.png")
     buffer = pygame.image.load("images/imageBuffer.png").convert()
-    
     screen.blit(buffer, (0, 0))
     pygame.display.flip()
     rate += 1
