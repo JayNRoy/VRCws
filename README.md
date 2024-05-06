@@ -3,10 +3,12 @@ A software renderer written from scratch in Python 3, using only modules from th
 ![cow](https://raw.githubusercontent.com/ecann/RenderPy/master/images/depthCow.png)
 
 ## To Run
-With python 3.11.x installed, within the command line terminal:
+With python 3.11.x and pygame installed, run the following command in the command line terminal:
 ```python 
 python3 render.py
 ```
+
+Which will prompt the engine to start and a new window to open demonstrating the engine running. To exit the simulation, please press `Q` on your keyboard.
 ## Modules
 ### Matrix.py
 Contains a matrix class that converts two-dimensional arrays into matrices, faciliating the usage of matrix operations, and multiplications.

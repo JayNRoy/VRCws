@@ -3,7 +3,7 @@ from model import Model
 from shape import Point, Line, Triangle
 from matrix import Matrix 
 from matrixChild import TranslateMatrix, RotateMatrix, ScaleMatrix
-from vector import Vector
+from vectorV2 import Vector
 import numpy as np
 import math
 import time
@@ -124,6 +124,8 @@ del magnY
 del magnZ'''
 
 ''' TESTING THE ABOVE FUNCTIONS WORK '''
+
+count = 1
 
 # Processing data in batches
 chunkz = 1000 # Chunk size
@@ -287,10 +289,11 @@ def applyRotationToVertex(vertex, rotation_matrix):
 print(""" --- PROBLEM 5: PHYSICS & COLLISIONS --- """)
 
 class GameObject:
-    def __init__(self, position, orientation, model, screenWidth, screenHeight, iniQ=np.array([1, 0, 0, 0]), mass=1.0, radius=1.0, velocity=None, modelHalf=None, modelQuar=None):
+    def __init__(self, id, position, orientation, model, screenWidth, screenHeight, iniQ=np.array([1, 0, 0, 0]), mass=2, radius=0.5, velocity=None, modelHalf=None, modelQuar=None):
+        self.id = id
         self.model = model
-        self.position = np.array(position)
-        self.velocity = np.array(velocity) if velocity is not None else np.zeros(3)
+        self.position = np.array(position, dtype=np.float64)
+        self.velocity = np.array(velocity if velocity is not None else np.zeros(3), dtype=np.float64)
         self.orientation = orientation
         self.mass = mass
         self.radius = radius
@@ -305,44 +308,74 @@ class GameObject:
             self.modelDetails['half'] = modelHalf
         if modelQuar != None:
             self.modelDetails['quarter'] = modelQuar
-    
-    def updatePhysics(self, deltaTime, gravity=np.array([0, -9.81, 0])):
-        # Apply gravity
-        acceleration = gravity
 
-        # Air resistance parameters (could be attributes instead)
+    def updatePhysics(self, deltaTime, gravity=np.array([0, -0.1, 0])): # CHANGE BACK TO -9.81
+        acceleration = gravity.copy()  # Start with gravity
+
+        # Air resistance parameters
         dragCoeff = 0.5
         rho = 1.3  # Air density in kg/m^3
         A = 0.2  # Cross-sectional area in m^2
 
         # Calculate drag force
         vMag = np.linalg.norm(self.velocity)
-        if vMag > 0:
+        if vMag > 0:  # Prevent division by zero or processing when unnecessary
             dragForce = -0.5 * rho * dragCoeff * A * vMag * self.velocity
             acceleration += dragForce / self.mass
+        else:
+            dragForce = np.zeros_like(self.velocity)  # No movement, no drag force
 
         # Update velocity and position based on acceleration
         self.velocity += acceleration * deltaTime
+        self.clampVelocity()
         self.position += self.velocity * deltaTime
 
+    def clampVelocity(self):
+        terminalV = 5.0  # Set a suitable max velocity
+        if np.linalg.norm(self.velocity) > terminalV:
+            self.velocity = self.velocity / np.linalg.norm(self.velocity) * terminalV
+
     def checkCollisions(self, other):
+        # Calculate the distance between the centers of two objects
         distance = np.linalg.norm(self.position - other.position)
-        return distance < (self.radius + other.radius)
+        # Sum of the radii
+        radius_sum = self.radius + other.radius
+        # Check if the distance is less than the sum of the radii
+        if distance < radius_sum:
+            return True
+        else:
+            return False
     
-    def resolveCollision(self, other):
-        # Simple elastic collision resolution
-        normal = (self.position - other.position) / np.linalg.norm(self.position - other.position)
-        relative_velocity = self.velocity - other.velocity
-        deltaV = 2 * np.dot(relative_velocity, normal) * normal / (self.mass + other.mass)
-        self.velocity -= deltaV * other.mass
-        other.velocity += deltaV * self.mass
+    def checkFloorCollision(self, floorY=0):
+        # Collide with the floor of the screen
+        if self.position[1] < floorY:
+            self.position[1] = floorY  # Reset position to floor level
+            self.velocity[1] = -self.velocity[1] * 0.99  # Reverse and dampen the y velocity
+
+    def checkWallCollisions(self, minX, maxX):
+        # Collide with the horizontal-walls of the screen
+        if self.position[0] < minX:
+            self.position[0] = minX
+            self.velocity[0] = -self.velocity[0] * 0.99
+        elif self.position[0] > maxX:
+            self.position[0] = maxX
+            self.velocity[0] = -self.velocity[0] * 0.99
+
+    def checkDepthCollisions(self, minZ, maxZ):
+        # Collide with the depth-walls of the screen
+        if self.position[2] < minZ:
+            self.position[2] = minZ
+            self.velocity[2] = -self.velocity[0] * 0.99
+        elif self.position[2] > maxZ:
+            self.position[2] = maxZ
+            self.velocity[2] = -self.velocity[0] * 0.99
 
     def getPerspectiveProjection(self, vertex, fov=90, aspect_ratio=1.0, near=0.1, far=1000.0):
         # Calculate the field of view in radians
         f = 1.0 / math.tan(math.radians(fov) / 2.0)
         # Update vertex position based on the object's position
         x, y, z = vertex + self.position
-        z = z - 1.9  # Adjust for the camera's view depth
+        z = z - 4  # Adjust for the camera's view depth
 
         # Create the perspective projection matrix
         matrix = np.array([
@@ -359,24 +392,165 @@ class GameObject:
         screenY = int((projected_point[1] / projected_point[3] + 1.0) * self.screenHeight / 2.0)
         return screenX, screenY
     
-    def applyTransformation(self, gyro, accl, magn, dTime, alpha1=0.5, alpha2=0.5, scalar=1, displacer=[0, 0, 0]):
+    def applyTransformation(self, displacer=[0, 0, 0], scalar=[1, 1, 1]):
         # Apply scaling, rotation, and translation transformations
         scaleMatrix = ScaleMatrix(scalar)
         translateMatrix = TranslateMatrix(displacer)
 
-        # Get the orientation data into the object
-        gyroQuar = updateOrientationDeadReckoning(gyro, deltaTime)
-        accelQuar = updateOrientationWithAccelerometer(accl)
-
-        # Compute final orientation using the complementary filter
-        self.currentQ = complementaryFilter(gyroQuar, accelQuar, alpha1)
-
-        # Convert currentQ to a rotation matrix for rendering
-        rotateMatrix = quaternionToRotationMatrix(self.currentQ)
-
         # Combine transformations
-        transformationMatrix = np.dot(np.dot(translateMatrix, rotateMatrix), scaleMatrix)
+        mat1, mat2 = np.array(translateMatrix.elements), np.array(scaleMatrix.elements)
+        transformationMatrix = np.dot(mat1, mat2)
         return transformationMatrix
+
+    def renderFace(self, modelFace, imageScr, allVerts, vNormals, lightDir, ambInt, rotateMat, buffer):
+        transformedPoints = []
+
+        verts = [allVerts[i] for i in modelFace]
+        norms = [vNormals[i] for i in modelFace]
+
+        # Transform vertices and normals
+        displace = []
+        for comp in self.position:
+            displace.append(comp)
+        transformPos = self.applyTransformation(displace)
+        transformedVertices = []
+        for v in verts:
+            vertObs = np.array([v.x, v.y, v.z, 1])  # Homogeneous coordinates
+            vTrans = np.dot(transformPos, vertObs)
+            newV = Vector(vTrans[0], vTrans[1], vTrans[2])
+            #transformedVertices.append(applyRotationToVertex(newV, rotateMat))
+            transformedVertices.append(newV)
+        #transformedVertices = [applyRotationToVertex(v, rotateMat) for v in verts]
+
+        transformedNormals = [applyRotationToVertex(n, rotateMat) for n in norms]
+
+        for p, n in zip(transformedVertices, transformedNormals):
+            # Basic Ambient and Diffuse Lighting combined
+            diffuse = max(np.dot(n, lightDir), 0)
+            intensity = max(0, min(1, ambInt + (1 - ambInt) * diffuse))  # Combine ambient and diffuse
+
+            n = n.normalize()
+
+            # Intensity < 0 means light is shining through the back of the face
+            # In this case, don't draw the face at all ("back-face culling")
+            
+            if intensity > 0:
+                screenX, screenY = getPerspectiveProjection(p.x, p.y, p.z)
+                colorVal = int(intensity * 255)
+                transformedPoints.append(Point(screenX, screenY, p.z, Color(colorVal, colorVal, colorVal, 255)))
+        
+        if len(transformedPoints) == 3:
+            Triangle(transformedPoints[0], transformedPoints[1], transformedPoints[2]).draw_faster(imageScr, buffer)
+
+class StaticObject(GameObject):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mass = np.inf  # Set mass to infinity or a very high number
+
+    def updatePhysics(self, deltaTime, gravity=np.array([0, 0, 0])):
+        # Static object does not move, so physics update is overridden to do nothing
+        pass
+
+    def renderFace(self, modelFace, imageScr, allVerts, vNormals, lightDir, ambInt, rotateMat, buffer):
+        transformedPoints = []
+
+        verts = [allVerts[i] for i in modelFace]
+        norms = [vNormals[i] for i in modelFace]
+
+        # Transform vertices and normals
+        scale = []
+        for comp in self.position:
+            scale.append(self.radius)
+        transformPos = self.applyTransformation()
+        scaleMatrix = ScaleMatrix(scale)
+        transformedVertices = []
+        for v in verts: # Perform rotation before scaling
+            vertObs = np.array([v.x, v.y, v.z, 1])  # Homogeneous coordinates
+            vTrans = np.dot(transformPos, vertObs)
+            newV = Vector(vTrans[0], vTrans[1], vTrans[2])
+            rotateV = applyRotationToVertex(newV, rotateMat)
+            scaledV = np.dot(np.array(scaleMatrix.elements), np.array([rotateV.x, rotateV.y, rotateV.z, 1]))
+            finalV = Vector(scaledV[0], scaledV[1], scaledV[2])
+            transformedVertices.append(finalV)
+        #transformedVertices = [applyRotationToVertex(v, rotateMat) for v in verts]
+
+        transformedNormals = [applyRotationToVertex(n, rotateMat) for n in norms]
+
+        for p, n in zip(transformedVertices, transformedNormals):
+            # Basic Ambient and Diffuse Lighting combined
+            diffuse = max(np.dot(n, lightDir), 0)
+            intensity = max(0, min(1, ambInt + (1 - ambInt) * diffuse))  # Combine ambient and diffuse
+
+            n = n.normalize()
+
+            # Intensity < 0 means light is shining through the back of the face
+            # In this case, don't draw the face at all ("back-face culling")
+            
+            if intensity > 0:
+                screenX, screenY = getPerspectiveProjection(p.x, p.y, p.z)
+                colorVal = int(intensity * 255)
+                transformedPoints.append(Point(screenX, screenY, p.z, Color(colorVal, colorVal, colorVal, 255)))
+        
+        if len(transformedPoints) == 3:
+            Triangle(transformedPoints[0], transformedPoints[1], transformedPoints[2]).draw_faster(imageScr, buffer)
+
+def reflect(dynamic, static):
+    # Reflect the dynamic object off the static object
+    # Calculate the normal vector from the dynamic object to the static object
+    normal = static.position - dynamic.position
+    normal /= np.linalg.norm(normal)
+    
+    # Calculate the velocity component normal to the collision surface
+    velNorm = np.dot(dynamic.velocity, normal) * normal
+    
+    # Reflect this component of the velocity (other components remain unchanged)
+    dynamic.velocity -= 2 * velNorm
+    
+    # Adjust the dynamic object's position to prevent it from "sinking" into the static object
+    # to avoid situations where repeated collisions are detected due to object overlap
+    penetration_depth = dynamic.radius + dynamic.radius - np.linalg.norm(static.position - dynamic.position)
+    if penetration_depth > 0:
+        dynamic.position -= penetration_depth * normal
+
+# Centralised functions for handling and resolving collisions
+def handleCollisions(objects):
+    global count
+    # First, detect all collisions
+    collisions = []
+    for i in range(len(objects)):
+        for j in range(i + 1, len(objects)):
+            if objects[i].checkCollisions(objects[j]):
+                collisions.append((objects[i], objects[j]))
+                #print(f"{count}: Collision detected between Object {objects[i].id} and Object {objects[j].id}")
+        
+            count += 1
+
+    # Then, resolve each collision
+    for obj1, obj2 in collisions:
+        resolveCollision(obj1, obj2)
+
+def resolveCollision(obj1, obj2):
+    if obj1.mass == np.inf:
+        reflect(obj2, obj1)
+    elif obj2.mass == np.inf:
+        reflect(obj1, obj2)
+    else:
+        # Calculate normal vector from obj1 to obj2
+        normal = obj2.position - obj1.position
+        normal /= np.linalg.norm(normal)
+
+        # Move objects away from each other based on their masses
+        total_mass = obj1.mass + obj2.mass
+        move_dist = 0.5  # This value might need tuning based on your units/scale
+        obj1.position -= normal * (move_dist * obj2.mass / total_mass)
+        obj2.position += normal * (move_dist * obj1.mass / total_mass)
+
+        # Adjust velocities to account for elasticity
+        relative_velocity = obj1.velocity - obj2.velocity
+        elasticity = 0.8  # This is the coefficient of restitution
+        impulse = 2 * np.dot(relative_velocity, normal) / total_mass
+        obj1.velocity -= impulse * obj2.mass * normal * elasticity
+        obj2.velocity += impulse * obj1.mass * normal * elasticity
 
 print(""" --- PROBLEM 1: RENDERING --- """)
 
@@ -469,7 +643,21 @@ def calculateDistance(vector1, vector2):
     distance = vector1.norm() - vector2.norm()
     return distance
 
-# Load the model # TODO ENSURE Directories align
+# Load the model
+print(""" --- PROBLEM 6: LEVEL OF DETAIL --- """)
+
+def calculateDistanceFromCamera(obj, camera_position=[0, 0, 0]):
+    # Assuming camera_position is the origin or where your camera is located
+    return np.linalg.norm(obj.position - np.array(camera_position))
+
+def selectModelForObject(obj, distance):
+    if distance < 1.5 and 'default' in obj.modelDetails:
+        obj.model = obj.modelDetails['default']
+    elif distance < 3 and 'half' in obj.modelDetails:
+        obj.model = obj.modelDetails['half']
+    elif 'quarter' in obj.modelDetails:
+        obj.model = obj.modelDetails['quarter']
+
 model = Model('data/headset.obj')
 model.normalizeGeometry()
 # Load the half-sized model
@@ -549,12 +737,74 @@ ModelCollection = {
 
 iniMagnetometer = np.array([imu['magnX'][0], imu['magnY'][0], imu['magnZ'][0]])
 
+floorYVal = -3
+wallXVal = 3
+depthZVal = 4
+
+# Create GameObjects
+objects = [
+    GameObject(id=0, position=[0, 4, -5], 
+               velocity=[0, 0.2, 0], 
+               orientation=np.identity(3), 
+               model=model,
+               screenWidth=width, 
+               screenHeight=height,
+               modelHalf=modelHalf,
+               modelQuar=modelQuar),
+    GameObject(id=1, position=[2, 5, -7], 
+               velocity=[-0.3, -0.1, 0], 
+               orientation=np.identity(3), 
+               model=model, 
+               screenWidth=width, 
+               screenHeight=height,
+               modelHalf=modelHalf,
+               modelQuar=modelQuar),
+    GameObject(id=2, position=[-2, 5, -7], 
+               velocity=[0.3, -0.1, 0], 
+               orientation=np.identity(3), 
+               model=model, 
+               screenWidth=width, 
+               screenHeight=height,
+               modelHalf=modelHalf,
+               modelQuar=modelQuar),
+    # Create a static object in the center of the simulation
+    StaticObject(id=99, position=[0, -1, -4],
+                velocity=[0, 0, 0],
+                orientation=np.identity(3),
+                model=model,
+                screenWidth=width,
+                screenHeight=height,
+                radius=1.1)
+    # Add more GameObjects as needed
+]
+
+frame_times = []
+
+def start_frame():
+    global frame_start_time
+    frame_start_time = time.time()
+
+def end_frame():
+    global frame_times
+    frame_end_time = time.time()
+    frame_time = frame_end_time - frame_start_time
+    frame_times.append(frame_time)
+    if len(frame_times) > 60:
+        frame_times.pop(0)  # Keep the last 60 frame times
+
+def calculate_fps():
+    if frame_times:
+        average_frame_time = sum(frame_times) / len(frame_times)
+        return 1.0 / average_frame_time if average_frame_time else 0
+    return 0
+
 rate = 0
 timing = 0
 backgroundColor = Color(255, 255, 255, 255)  # Black as the background color
 running = True
 '''MAIN ENGINE LOOP'''
 while running: # Main engine loop
+    start_frame()  # Start timing the frame
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -591,8 +841,29 @@ while running: # Main engine loop
 
     AmbientInte = 0.1
     # Define the light direction
-    lightDir = Vector(0, 0, -1)
-    
+    lightDir = Vector(0, -1, -1)
+
+    # Update physics and handle collisions
+    for obj in objects:
+        # To maintain vision of the headsets so they dont disappear
+        obj.updatePhysics(deltaTime) # Assume a fixed time step for simplicity
+        obj.checkFloorCollision(floorYVal)  # Check collision with the floor
+        obj.checkWallCollisions(minX=-wallXVal, maxX=wallXVal)  # Check collision with the horizontal walls
+        obj.checkDepthCollisions(minZ=-depthZVal, maxZ=depthZVal) # Check collision with the depthwise-walls
+
+    # Handle collisions centrally
+    handleCollisions(objects)
+
+    for obj in objects:
+        distance = calculateDistanceFromCamera(obj)
+        selectModelForObject(obj, distance)
+        modelVertices = obj.model.vertices  # List of Vector objects
+        modelFaces = obj.model.faces        # List of lists (indices to vertices)
+
+        for face in modelFaces:
+            obj.renderFace(face, image, modelVertices, vertexNormals, lightDir, AmbientInte, rotateMat, zBuffer)
+        
+    '''
     # Render the image iterating through faces
     for face in model.faces:
         vertices = [model.vertices[i] for i in face]
@@ -624,7 +895,7 @@ while running: # Main engine loop
             if intensity <= 0:
                 cull = True # Back face culling is disabled in this version
 
-            '''PERSPECTIVE TRANSFORM'''
+            """PERSPECTIVE TRANSFORM"""
             #screenX, screenY = getOrthographicProjection(p.x, p.y, p.z)
             screenX, screenY = getPerspectiveProjection(p.x, p.y, p.z)
             colorVal = int(intensity * 255)
@@ -632,18 +903,22 @@ while running: # Main engine loop
         
         if not cull and len(transformedPoints) == 3:
             Triangle(transformedPoints[0], transformedPoints[1], transformedPoints[2]).draw_faster(image, zBuffer)
-    
+    '''
     # This engine will work by writing to a single image (that is being overwritten), 
     # then showing it in the buffer.
     
     # Constantly overwriting images to saves space. To track the status of the engine,
     # seperate images will be written alongside the buffer image to see how the engine develops.
-    
+
+    fps = calculate_fps()
+
     if rate % 60 == 0: # Every 60 frames
         image.saveAsPNG(f"image_frame{rate}.png")
     image.saveAsPNG("imageBuffer.png")
     buffer = pygame.image.load("images/imageBuffer.png").convert()
     screen.blit(buffer, (0, 0))
+    end_frame()  # End timing the frame and process data
+    print("FPS: ", fps)
     pygame.display.flip()
     rate += 1
     

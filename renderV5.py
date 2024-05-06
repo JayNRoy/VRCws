@@ -181,27 +181,6 @@ def quaternionFromAxisAngle(axis, theta):
     # Create the quaternion (scalar, vector)
     return np.concatenate(([scalar], vector))
 
-def getMagnetometerOrientation(magData, reference):
-    # Assuming magData already contains the correctly formatted current magnetometer reading
-    currentMagVector = np.array([magData['magnX'], magData['magnY'], magData['magnZ']])
-    if np.linalg.norm(currentMagVector) == 0:
-        return np.array([1, 0, 0, 0])  # Return identity quaternion if vector is zero
-
-    # Normalize vectors if not zero to prevent runtime warnings or errors
-    if np.linalg.norm(currentMagVector) > 0:
-        currentMagVector = currentMagVector / np.linalg.norm(currentMagVector)
-    if np.linalg.norm(referenceVector) > 0:
-        referenceVector = reference / np.linalg.norm(referenceVector)
-
-    # Ensure that both vectors are properly normalized and formatted
-    print("Reference Vector:", referenceVector)
-    print("Current Magnetometer Vector:", currentMagVector)
-    
-    axis = np.cross(referenceVector, currentMagVector)
-    angle = np.arccos(np.clip(np.dot(referenceVector, currentMagVector), -1.0, 1.0))
-
-    return quaternionFromAxisAngle(axis, angle)
-
 def updateOrientationDeadReckoning(gyroData, deltaTime):
     global currentQ
     # Convert gyro data (angular velocity in rad/s) to delta quaternion
@@ -249,14 +228,11 @@ def quaternionFromVectors(v0, v1):
 
     return np.array([s * 0.5, cross[0] * inv_s, cross[1] * inv_s, cross[2] * inv_s])
 
-def complementaryFilter(gyroOrient, accelOrient, magOrient, alphaGyroAccel, alphaMag):
+def complementaryFilter(gyroOrient, accelOrient, alphaGyroAccel):
     # First blend gyroscope and accelerometer
     gyroAccelBlend = slerp(gyroOrient, accelOrient, alphaGyroAccel)
-    
-    # Then blend the result with the magnetometer orientation
-    finalOrientation = slerp(gyroAccelBlend, magOrient, alphaMag)
 
-    return finalOrientation
+    return gyroAccelBlend
     
 def slerp(q1, q2, t):
     # Compute the cosine of the angle between the two vectors.
@@ -527,30 +503,12 @@ while running: # Main engine loop
                'magnY': imu['magnY'][rate % len(imu['magnY'])],
                'magnZ': imu['magnZ'][rate % len(imu['magnZ'])]}
 
-    print("Magnetometer data being passed:", magData)  # Check what is being passed exactly
-
-    # Convert these values to a numpy array and normalize
-    currentMagVector = np.array([magData['magnX'], magData['magnY'], magData['magnZ']])
-    print("Type and shape of currentMagVector:", type(currentMagVector), currentMagVector.shape)
-    print("Type and shape of iniMagnetometer:", type(iniMagnetometer), iniMagnetometer.shape)
-
-    if np.linalg.norm(currentMagVector) != 0:
-        currentMagVector = currentMagVector / np.linalg.norm(currentMagVector)
-    
-    
-
-    #magOrient = getMagnetometerOrientation(currentMagVector, iniMagnetometer)
-
-    # Call to calculate orientation from magnetometer
-    magOrient = getMagnetometerOrientation(magData, iniMagnetometer)
-
     alpha1, alpha2 = 0.001, 0.1
 
     # Simulated magnetometer data retrieval
-    magOrient = getMagnetometerOrientation(imu, iniMagnetometer)
 
     # Compute final orientation using the complementary filter
-    currentQ = complementaryFilter(gyroOrient, accelOrient, magOrient, 0.01, 0.99)
+    currentQ = complementaryFilter(gyroOrient, accelOrient, 0.01)
 
     # Convert currentQ to a rotation matrix for rendering
     rotateMat = quaternionToRotationMatrix(currentQ)

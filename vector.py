@@ -5,10 +5,11 @@ class Vector(object):
     """ A vector with useful vector / matrix operations.
     """
     def __init__(self, *args):
-        if len(args) == 0:
+        self.components = args if args else (0, 0, 0)  # Default to a zero 3D vector
+        '''if len(args) == 0:
             self.components = (0, 0)
         else:
-            self.components = args
+            self.components = args'''
 
     @property
     def x(self):
